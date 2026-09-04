@@ -1,7 +1,13 @@
 /**
  * ============================================================
- *  GENFIN API v2.1 — JSON API terenkripsi untuk Google Sheets
+ *  GENFIN API v2.3 — JSON API terenkripsi untuk Google Sheets
  * ============================================================
+ *  PERBAIKAN v2.3 (sinkronisasi — ganti versi lama):
+ *   - BUG: aksi 'save' membaca versi → cek → tulis TANPA lock penuh →
+ *     dua save bersamaan lolos cek = penimpaan senyap. Kini atomik.
+ *   - Request tanpa key (boot pertama perangkat) TIDAK lagi dihitung
+ *     sebagai AUTH_FAIL (dulu 16x buka app → keluarga terkunci 15 mnt).
+ *
  *  PERBAIKAN v2.1 (ganti versi lama):
  *   - setupGenFin() sekarang IDEMPOTEN: menjalankan ulang TIDAK
  *     mengganti Access Key (aman dari salah-klik). Key tetap sama,
@@ -94,7 +100,9 @@ function resetGenFinKey() {
 }
 
 function _gate(req) {
-  var ok = !!_key() && String(req.key || '').trim() === _key();
+  var k = String(req.key || '').trim();
+  if (!k) return false; // v2.3: request TANPA key (boot pertama perangkat) TIDAK dihitung sebagai percobaan gagal
+  var ok = !!_key() && k === _key();
   if (!ok) {
     var c = CacheService.getScriptCache(), f = Number(c.get('gf_fail') || 0) + 1;
     c.put('gf_fail', String(f), 900); // 15 menit
@@ -128,18 +136,15 @@ function _read() {
 function _chunks(s) { var out = []; for (var i = 0; i < s.length; i += CHUNK) out.push(s.substr(i, CHUNK)); return out; }
 
 function _write(env, ctChunks) {
-  var lock = LockService.getScriptLock();
-  try { lock.waitLock(20000); } catch (e) {}
-  try {
-    var sh = _sh(DB);
-    sh.clearContents();
-    var rows = [];
-    var maxR = Math.max(1, ctChunks.length);
-    for (var i = 0; i < maxR; i++) {
-      rows.push([i === 0 ? JSON.stringify(env) : '', ctChunks[i] || '']);
-    }
-    sh.getRange(1, 1, rows.length, 2).setValues(rows);
-  } finally { try { lock.releaseLock(); } catch (e) {} }
+  // v2.3: lock dipindah ke PEMANGGIL (aksi save) agar read→check→write atomik.
+  var sh = _sh(DB);
+  sh.clearContents();
+  var rows = [];
+  var maxR = Math.max(1, ctChunks.length);
+  for (var i = 0; i < maxR; i++) {
+    rows.push([i === 0 ? JSON.stringify(env) : '', ctChunks[i] || '']);
+  }
+  sh.getRange(1, 1, rows.length, 2).setValues(rows);
 }
 
 function _hist(env, ct) {
@@ -196,18 +201,30 @@ function doPost(e) {
   }
 
   if (req.action === 'save') {
-    var s = _read();
-    var base = Number(req.base || 0);
-    var vNow = (s && s.enc) ? s.v : 0;
-    if (base !== vNow) { _audit('CONFLICT', vNow, 'base=' + base); return out({ conflict: true, v: vNow }); }
+    // v2.3: read→check→write DI DALAM lock (dulu hanya _write yang dikunci →
+    // dua save bersamaan base sama dua-duanya lolos cek = penimpaan senyap)
     var ct = String(req.ct || ''), iv = String(req.iv || ''), salt = String(req.salt || '');
     if (!ct || !iv || !salt) return out({ err: 'bad' });
-    var ch = _chunks(ct);
-    var env = { enc: 1, v: vNow + 1, salt: salt, iv: iv, chunks: ch.length };
-    _write(env, ch);
-    _hist(env, ct);
-    _audit('SAVE', env.v, ch.length + ' chunk');
-    return out({ ok: true, v: env.v });
+    var base = Number(req.base || 0);
+    var lock = LockService.getScriptLock();
+    try { lock.waitLock(20000); } catch (e) {}
+    var resp;
+    try {
+      var s = _read();
+      var vNow = (s && s.enc) ? s.v : 0;
+      if (base !== vNow) {
+        _audit('CONFLICT', vNow, 'base=' + base);
+        resp = { conflict: true, v: vNow };
+      } else {
+        var ch = _chunks(ct);
+        var env = { enc: 1, v: vNow + 1, salt: salt, iv: iv, chunks: ch.length };
+        _write(env, ch);   // lock sudah dipegang aksi save
+        _hist(env, ct);
+        _audit('SAVE', env.v, ch.length + ' chunk');
+        resp = { ok: true, v: env.v };
+      }
+    } finally { try { lock.releaseLock(); } catch (e) {} }
+    return out(resp);
   }
 
   return out({ err: 'unknown' });

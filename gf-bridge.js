@@ -1,5 +1,15 @@
 /* ============================================================
- * GenFin Bridge v2.1 — E2EE (AES-GCM 256 + PBKDF2) + Apps Script API
+ * GenFin Bridge v2.3 — E2EE (AES-GCM 256 + PBKDF2) + Apps Script API
+ *
+ * PERBAIKAN v2.3 (sinkronisasi):
+ *  - BUG KRITIS: antrian offline lama PUSH setiap save → item base-basi →
+ *    conflict → reload → flush lagi → RELOAD LOOP ABADI + data hilang.
+ *    Kini antrian single-slot: hanya snapshot TERAKHIR yang dikirim.
+ *  - Conflict: antrian dibuang + kartu pemberitahuan + auto-reload (bukan alert).
+ *  - Sinkron 2 ARAH: cek versi server saat focus/online/tiap 45 dtk —
+ *    bila perangkat lain menyimpan & lokal bersih → muat ulang otomatis.
+ *  - dirty-guard: sedang menyimpan/antri → auto-reload ditahan.
+ *  - hydrate menyimpan lastState → getState() ulang tidak kosong.
  *
  * PERBAIKAN v2.1:
  *  - ?api= TIDAK lagi dihapus dari URL → iOS menangkap URL lengkap
@@ -85,24 +95,65 @@
   function writeCache(c) { try { localStorage.setItem('gf_cache', JSON.stringify(c)); } catch (e) {} }
   function readCache() { try { return JSON.parse(localStorage.getItem('gf_cache') || 'null'); } catch (e) { return null; } }
 
-  /* ---------- antrian offline ---------- */
-  function queue() { try { return JSON.parse(localStorage.getItem('gf_pending') || '[]'); } catch (e) { return []; } }
-  function setQueue(q) { try { localStorage.setItem('gf_pending', JSON.stringify(q)); } catch (e) {} }
-  function flushQueue() {
-    var q = queue();
-    if (!q.length || !key) return Promise.resolve();
-    var item = q[0];
-    return api({ action: 'save', key: AK, base: item.base, iv: item.iv, ct: item.ct, salt: saltB64 })
+  /* ---------- OUTBOX v2.3: slot tunggal + pump ter-serialisasi ----------
+     Kenapa: state = snapshot PENUH → hanya snapshot TERAKHIR yang perlu dikirim.
+     v2.1 mem-PUSH tiap save → item base-basi → conflict → reload → flush → RELOAD LOOP.
+     Event online/focus/visibility nyaris bersamaan saat reconnect → tanpa guard,
+     item sama ter-POST dua kali → POST kedua conflict palsu. Pump = satu POST
+     pada satu waktu, item baru MENGGANTI yang lama, base di-rebase saat ver maju. */
+  var outbox = null, pumping = false, notifySaved = null;
+  function loadOutbox() { try { outbox = (JSON.parse(localStorage.getItem('gf_pending') || '[]')[0]) || null; } catch (e) { outbox = null; } }
+  function persistOutbox() { try { localStorage.setItem('gf_pending', outbox ? JSON.stringify([outbox]) : '[]'); } catch (e) {} }
+  function queueLen() { return outbox ? 1 : 0; }
+
+  var dirty = 0, conflictShown = false;
+  function conflictReload() {
+    if (conflictShown) return; conflictShown = true;
+    outbox = null; persistOutbox(); dirty = 0;
+    gate({ title: 'Data diperbarui di perangkat lain', sub: 'Ada perubahan lebih baru dari perangkat lain.\nMemuat ulang otomatis agar tidak ada data yang hilang…', fields: [], button: 'Muat Ulang' })
+      .then(function () { location.reload(); });
+    setTimeout(function () { try { location.reload(); } catch (e) {} }, 8000);
+  }
+  function pump() {
+    if (pumping || !outbox || !key || conflictShown) return;
+    var item = outbox;
+    if (item.salt && saltB64 && item.salt !== saltB64) { conflictReload(); return; }
+    if (item.base < ver) { item.base = ver; }   // rebase: ver kita sendiri sudah maju (save kita sebelumnya sukses)
+    pumping = true;
+    api({ action: 'save', key: AK, base: item.base, iv: item.iv, ct: item.ct, salt: saltB64 })
       .then(function (r) {
-        if (r.conflict) { alert('Data di perangkat lain lebih baru.\nMemuat ulang agar tidak ada yang hilang…'); location.reload(); return; }
-        if (r.err) return; // coba lagi nanti
-        ver = r.v; q.shift(); setQueue(q); flushQueue();
-      }).catch(function () { /* offline, coba lagi */ });
+        pumping = false;
+        if (r.conflict) { conflictReload(); return; }   // server lebih baru dari pengetahuan kita → muat ulang
+        if (r.err) return;                              // gagal sementara — item tetap, dicoba lagi event/interval berikut
+        ver = r.v;
+        if (outbox === item) { outbox = null; persistOutbox(); dirty = 0; if (notifySaved) { try { notifySaved(true); } catch (e) {} } }
+        else persistOutbox();
+        pump();                                         // item baru masuk selama POST berjalan
+      }).catch(function () { pumping = false; });       // offline — tetap di outbox
+  }
+
+  /* ---------- v2.3: cek versi server → perangkat lain menyimpan? muat otomatis (sinkron 2 arah) ---------- */
+  var lastCheck = 0;
+  function checkRemote() {
+    if (!API || !AK || !key || !hydrated) return;
+    if (Date.now() - lastCheck < 20000) return;
+    lastCheck = Date.now();
+    if (dirty > 0 || outbox) return; // ada simpanan lokal belum tersambung → jangan menyela
+    api({ action: 'meta', key: AK }).then(function (m) {
+      if (m && m.ok && typeof m.v === 'number' && m.v > ver && dirty === 0 && !outbox && !conflictShown) {
+        try { // anti loop-rapat: min 30 detik antar auto-reload
+          var t = Number(sessionStorage.getItem('gf_rl') || 0);
+          if (Date.now() - t < 30000) return;
+          sessionStorage.setItem('gf_rl', String(Date.now()));
+        } catch (e) {}
+        location.reload();
+      }
+    }).catch(function () {});
   }
   ['online', 'focus', 'visibilitychange'].forEach(function (ev) {
-    addEventListener(ev, function () { flushQueue(); });
+    addEventListener(ev, function () { pump(); checkRemote(); });
   });
-  setInterval(flushQueue, 60000);
+  setInterval(function () { pump(); checkRemote(); }, 45000);
 
   /* ---------- gerbang UI ---------- */
   var CSS =
@@ -326,8 +377,8 @@
 
   var hydrated = false, hydrateCb = null;
   function hydrate(json) {
-    hydrated = true;
-    flushQueue();
+    hydrated = true; lastState = json;   // v2.3: getState() ulang mendapat state terakhir, bukan kosong
+    pump(); checkRemote();
     if (hydrateCb) { var cb = hydrateCb; hydrateCb = null; cb(json); }
     resolveReady();
   }
@@ -356,30 +407,20 @@
       saveState: function (json) {
         lastState = json;
         if (!key) return; // belum terhidrasi — app lokal dulu
+        dirty++;                                  // v2.3: ada simpanan in-flight → tahan auto-reload
+        notifySaved = ok;
         var clean = cleanState(json);
         encryptStr(clean).then(function (e) {
-          return api({ action: 'save', key: AK, base: ver, iv: e.iv, ct: e.ct, salt: saltB64 })
-            .then(function (r) {
-              if (r.conflict) {
-                alert('Data di perangkat lain lebih baru.\nMemuat ulang agar tidak ada yang hilang…');
-                location.reload(); return;
-              }
-              if (r.err === 'auth') { alert('Access Key ditolak server.'); return; }
-              if (r.err) throw 0;
-              ver = r.v; flushQueue();
-              try { (ok || function () {})(true); } catch (e2) {}
-            });
-        }).catch(function () {
-          // offline → antre terenkripsi, flush saat online
-          encryptStr(clean).then(function (e2) {
-            var q = queue(); q.push({ base: ver, iv: e2.iv, ct: e2.ct }); setQueue(q);
-            try { (ok || function () {})(true); } catch (e3) {}
-          });
+          // slot tunggal: snapshot TERAKHIR menggantikan yang menunggu (lineage base dipertahankan)
+          var base = outbox ? outbox.base : ver;
+          outbox = { base: base, iv: e.iv, ct: e.ct, salt: saltB64 };
+          persistOutbox();
+          pump();
         });
       }
     };
   }
   window.google = { script: { run: chain(null, null) } };
-
+  loadOutbox();
   if (!API) needInstall(); else boot();
 })();

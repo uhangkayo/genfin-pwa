@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="GenFin">
-<script src="gf-bridge.js?v=3"></script>
+<script src="gf-bridge.js?v=4"></script>
 <script src="assets/react.js"></script>
 <script src="assets/react-dom.js"></script>
 <script src="assets/dc-runtime.js"></script>
@@ -1571,6 +1571,7 @@ class Component extends DCLogic {
   _pushSheetDebounced(){
     if(!this._gs() || !this._synced) return;           // jangan menimpa Sheet sebelum hidrasi awal selesai
     const snap=this._dataSnap();
+    if(this._lastSnap===undefined){ this._lastSnap=snap; return; }   // v2.3: baseline pasca-hidrasi — TIDAK ada save-mount percuma (dulu: tiap buka app = +1 versi + ping-pong reload antar perangkat)
     if(snap===this._lastSnap) return;                   // hanya simpan bila DATA berubah (bukan UI/status)
     this._lastSnap=snap;
     clearTimeout(this._saveT);
