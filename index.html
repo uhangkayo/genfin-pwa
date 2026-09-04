@@ -66,6 +66,11 @@
   #gf-pin{justify-content:flex-start !important;padding-top:max(30px,env(safe-area-inset-top)) !important;}
   #gf-pin::before{content:'';margin-top:auto;}
   #gf-pin::after{content:'';margin-bottom:auto;}
+  /* ===== FIX iOS: zoom-on-focus — input <16px memicu zoom otomatis di iOS Safari/WebKit
+     (iOS mengabaikan user-scalable=no); halaman ter-zoom → nav terpotong & layout "tidak penuh" ===== */
+  @media (pointer:coarse){
+    input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=button]), select, textarea{font-size:max(16px,1em) !important;}
+  }
   /* layar pendek (SE1 dsb): keypad dipadatkan agar muat */
   @media (max-height:640px){
     #gf-pin{padding-bottom:20px !important;}
@@ -2637,6 +2642,31 @@ class Component extends DCLogic {
 
 
 <script>
+/* ===== FIX iOS: shell selalu setinggi viewport NYATA =====
+   1) fixed inset:0 mengikuti layout viewport — di Safari toolbar mengambang / keyboard,
+      tinggi itu TIDAK sama dengan viewport visual → strip kosong di bawah nav.
+   2) WKWebView sering tidak repaint elemen fixed setelah keyboard tutup → gap abu permanen. */
+(function(){
+  function fit(){
+    var sh = document.getElementById('gf-shell'); if (!sh) return;
+    var h = window.innerHeight;
+    if (Math.abs(sh.getBoundingClientRect().height - h) > 1){ sh.style.height = h + 'px'; sh.style.bottom = 'auto'; }
+  }
+  fit();
+  window.addEventListener('resize', fit);
+  window.addEventListener('orientationchange', function(){ setTimeout(fit, 350); });
+  if (window.visualViewport){
+    window.visualViewport.addEventListener('resize', fit);
+    window.visualViewport.addEventListener('scroll', fit);
+  }
+  /* nudge repaint pasca-keyboard */
+  document.addEventListener('focusout', function(){
+    requestAnimationFrame(function(){ requestAnimationFrame(function(){
+      window.scrollTo(0, 0); fit();
+      var m = document.querySelector('#gf-col > main'); if (m) { m.scrollTop = m.scrollTop; }
+    }); });
+  });
+})();
 if ('serviceWorker' in navigator) { addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function(){}); }); }
 </script>
 </body></html>
