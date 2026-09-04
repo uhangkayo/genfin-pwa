@@ -109,7 +109,7 @@
     '#gf-gate{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;' +
     'background:linear-gradient(160deg,#0b3d2e 0%,#0e5941 60%,#12805a 100%);font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif;' +
     '-webkit-backdrop-filter:blur(6px);}' +
-    '#gf-gate .gf-card{background:rgba(255,255,255,.98);border-radius:20px;padding:26px 22px;width:min(88vw,340px);box-shadow:0 18px 50px rgba(0,0,0,.4);}' +
+    '#gf-gate .gf-card{background:rgba(255,255,255,.98);border-radius:20px;padding:26px 22px;width:min(88vw,340px);max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);overflow-y:auto;box-shadow:0 18px 50px rgba(0,0,0,.4);}' +
     '#gf-gate .gf-logo{width:54px;height:54px;border-radius:14px;background:linear-gradient(150deg,#0b3d2e,#16a34a);color:#fbbf24;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;margin:0 auto 10px;}' +
     '#gf-gate h1{font-size:17px;margin:2px 0 2px;text-align:center;color:#0b3d2e;}' +
     '#gf-gate p{font-size:12.5px;color:#6b7280;text-align:center;margin:0 0 14px;line-height:1.45;white-space:pre-line;}' +
@@ -120,7 +120,7 @@
     '#gf-gate .gf-err{color:#dc2626;font-size:12.5px;text-align:center;margin:-4px 0 8px;min-height:15px;line-height:1.4;}' +
     '#gf-gate label{display:flex;gap:8px;align-items:center;font-size:12px;color:#6b7280;margin:-4px 0 10px;}' +
     '#gf-gate a{display:block;text-align:center;margin:-2px 0 12px;font-size:12px;color:#0b3d2e;text-decoration:underline;}' +
-    '#gf-gate .gf-badge{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.75);font-size:10.5px;white-space:nowrap;}';
+    '#gf-gate .gf-badge{position:fixed;bottom:max(10px,env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);color:rgba(255,255,255,.75);font-size:10.5px;white-space:nowrap;}';
   function gate(opts) {
     // opts: {title, sub, fields:[{id,type,placeholder,label?,checked?}], button, check?, link?:{text,onClick}}
     return new Promise(function (resolve) {

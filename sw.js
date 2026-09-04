@@ -1,7 +1,7 @@
 /* GenFin Service Worker v2 — app shell offline-first
  * v2: network-first untuk navigasi & gf-bridge.js agar update bugfix
  *     langsung sampai ke pengguna (asset besar tetap cache-first). */
-var CACHE = 'genfin-v2';
+var CACHE = 'genfin-v3';
 var CORE = [
   './',
   './index.html',
