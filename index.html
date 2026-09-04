@@ -54,11 +54,14 @@
   }
   @media print { header, nav, main { display:none !important; } body{background:#fff;} .print-only{display:block !important;} }
 
-  /* ===== APP SHELL — tinggi = viewport NYATA (kebal bug 100vh/dvh di iOS Safari & PWA) ===== */
+  /* ===== APP SHELL — kolom = ABSOLUTE inset:0 di dalam shell fixed (pola diag.html,
+     TERBUKTI full-bleed di iPhone nyata iOS 18.7). JANGAN pakai height:100% pada flex item:
+     WebKit iOS gagal resolve % height terhadap parent fixed dgn align-items:flex-start
+     → kolom = tinggi konten → nav melayang/gap di bawah. Absolute inset:0 = nol persentase. ===== */
   html,body{height:100%;}
   body{overflow:hidden;}
-  #gf-shell{position:fixed;inset:0;min-height:0 !important;align-items:stretch;}
-  #gf-col{height:100%;min-height:0 !important;}
+  #gf-shell{position:fixed;inset:0;min-height:0 !important;align-items:stretch !important;}
+  #gf-col{position:absolute !important;top:0;left:0;right:0;bottom:0;margin:0 auto;width:100%;max-width:468px;height:auto !important;min-height:0 !important;}
   #gf-col > header{flex:0 0 auto;}
   #gf-col > main{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding-bottom:calc(28px + env(safe-area-inset-bottom)) !important;}
   #gf-col > nav{flex:0 0 auto;}
@@ -87,8 +90,8 @@
 </helmet>
 
 
-<div id="gf-shell" style="min-height:100vh;min-height:100dvh;width:100%;background:#e5e5ea;display:flex;justify-content:center;align-items:flex-start;">
-  <div id="gf-col" style="width:100%;max-width:468px;min-height:100vh;min-height:100dvh;background:#F4F5F7;position:relative;display:flex;flex-direction:column;box-shadow:0 0 50px rgba(20,30,50,.08);">
+<div id="gf-shell" style="min-height:100vh;min-height:100dvh;width:100%;background:#e5e5ea;display:flex;justify-content:center;align-items:stretch;">
+  <div id="gf-col" style="width:100%;max-width:468px;background:#F4F5F7;display:flex;flex-direction:column;box-shadow:0 0 50px rgba(20,30,50,.08);">
 
     <!-- HEADER -->
     <header style="position:sticky;top:0;z-index:30;background:{{ headerBg }};backdrop-filter:blur(18px);padding:max(16px,env(safe-area-inset-top)) 18px 10px;display:flex;align-items:flex-end;justify-content:space-between;">
@@ -883,7 +886,7 @@
 
           <button sc-camel-on-click="{{ printReport }}" style="margin-top:14px;width:100%;border:none;background:#151823;color:#fff;font-size:16px;font-weight:600;padding:15px;border-radius:13px;cursor:pointer;">Cetak / Simpan PDF</button>
           <button sc-camel-on-click="{{ resetData }}" style="margin-top:12px;width:100%;border:none;background:#fff;color:#ff3b30;font-size:16px;font-weight:500;padding:15px;border-radius:13px;cursor:pointer;box-shadow:0 4px 16px rgba(20,20,28,.06);">Reset ke data awal</button>
-          <p style="font-size:12px;color:#aeaeb2;text-align:center;margin-top:14px;">Data tersimpan otomatis di perangkat ini.<br>GenFin v2.5 · SW v7</p>
+          <p id="gf-ver" style="font-size:12px;color:#aeaeb2;text-align:center;margin-top:14px;">Data tersimpan otomatis di perangkat ini.<br>GenFin v2.6 · SW v8</p>
         </section>
       </sc-if>
 
@@ -2647,12 +2650,22 @@ class Component extends DCLogic {
    jadi men-set height=innerHeight justru MENCIPATAKAN gap abu permanen.
    Yang dipertahankan hanya nudge repaint pasca-keyboard (bug WKWebView). ===== */
 (function(){
+  /* nudge repaint pasca-keyboard */
   document.addEventListener('focusout', function(){
     requestAnimationFrame(function(){ requestAnimationFrame(function(){
       window.scrollTo(0, 0);
       var m = document.querySelector('#gf-col > main'); if (m) { m.scrollTop = m.scrollTop; }
     }); });
   });
+  /* telemetry: tinggi kolom vs innerHeight — tampil di badge tab Atur */
+  setInterval(function(){
+    try{
+      var el = document.getElementById('gf-ver'); if (!el) return;
+      var c = document.getElementById('gf-col'); if (!c) return;
+      var t = 'GenFin v2.6 · SW v8 · kol ' + Math.round(c.getBoundingClientRect().height) + ' / ' + Math.round(window.innerHeight) + 'px';
+      if (el.dataset.v !== t){ el.dataset.v = t; el.innerHTML = 'Data tersimpan otomatis di perangkat ini.<br>' + t; }
+    }catch(e){}
+  }, 1500);
 })();
 if ('serviceWorker' in navigator) { addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function(){}); }); }
 </script>
