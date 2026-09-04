@@ -1,28 +1,25 @@
 /**
  * ============================================================
- *  GENFIN API v2 — JSON API terenkripsi untuk Google Sheets
+ *  GENFIN API v2.1 — JSON API terenkripsi untuk Google Sheets
  * ============================================================
- *  PERBEDAAN DARI VERSI LAMA:
- *   - doPost murni JSON API (dipanggil PWA via fetch) — bukan UI.
- *   - Server TIDAK PERNAH melihat plaintext: hanya menerima
- *     ciphertext AES-GCM dari perangkat klien.
- *   - Access Key (secret keluarga) wajib di setiap request.
- *   - Versioning: penulisan dengan versi basi DITOLAK (anti
- *     last-write-wins), snapshot 10 versi terakhir di tab _HIST.
- *   - Tab mirror (Pos/Bank/Ledger dst) tidak dibangun ulang —
- *     server buta terhadap isi data (konsekuensi E2E).
+ *  PERBAIKAN v2.1 (ganti versi lama):
+ *   - setupGenFin() sekarang IDEMPOTEN: menjalankan ulang TIDAK
+ *     mengganti Access Key (aman dari salah-klik). Key tetap sama,
+ *     dan dikirim ulang ke email pemilik.
+ *   - Access Key otomatis DIKIRIM ke Gmail pemilik — tidak perlu
+ *     cari-cari execution log (sulit di HP).
+ *   - Action "sendkey": dari aplikasi, "lupa Access Key?" → key
+ *     dikirim ulang ke email pemilik (rate-limit 10 menit).
+ *   - resetGenFinKey(): SATU-SATUNYA cara ganti key (disengaja).
+ *   - doGet melaporkan status setup (untuk pesan error yang jelas).
  *
  *  SETUP (5 menit, sekali saja):
  *   1. Buka Extensions ▸ Apps Script pada Spreadsheet GenFin.
  *   2. GANTI SELURUH isi Code.gs dengan file ini. Simpan.
  *   3. Jalankan fungsi setupGenFin() sekali (tombol Run).
- *      → Salin ACCESS KEY dari Execution log (berikan ke setiap
- *        perangkat keluarga, sekali saja saat pertama buka PWA).
- *   4. Deploy ▸ New deployment ▸ Web app:
- *        Execute as: Me    |    Who has access: Anyone
- *      → Salin URL /exec, buka PWA dengan tambahan:
- *        https://<host>/?api=<URL exec yang di-encode>
- *      (cukup sekali — URL tersimpan otomatis di perangkat).
+ *      → Access Key dikirim ke Gmail Anda (juga ada di Execution log).
+ *   4. Deploy ▸ Manage deployments ▸ (edit) ▸ Version: New version
+ *      ▸ Deploy.  ← URL /exec TIDAK berubah, jangan buat deployment baru.
  *
  *  MIGRASI DATA LAMA: otomatis. Jika _DB berisi plaintext lama,
  *  PWA akan meminta passphrase baru, lalu menulis ulang _DB
@@ -43,22 +40,61 @@ function _sh(name) {
   return sh;
 }
 
-/** Jalankan SEKALI dari editor. Cetak ACCESS KEY di log. */
+function _key() { return PropertiesService.getScriptProperties().getProperty('GF_KEY') || ''; }
+function _owner() { return PropertiesService.getScriptProperties().getProperty('GF_OWNER') || ''; }
+
+function mailKey(subject) {
+  var owner = _owner(), k = _key();
+  if (!owner || !k) return false;
+  try {
+    MailApp.sendEmail(owner, subject,
+      'ACCESS KEY KELUARGA GENFIN:\n\n' + k + '\n\n' +
+      'Key ini dipakai SEKALI per perangkat saat pertama membuka aplikasi GenFin\n' +
+      '(link: https://uhangkayo.github.io/genfin-pwa/).\n\n' +
+      'JANGAN berikan kepada orang di luar keluarga.\n' +
+      'Passphrase data TIDAK ada hubungannya dengan key ini —\n' +
+      'passphrase hanya diketahui pemilik data.\n\n— GenFin (otomatis)');
+    return true;
+  } catch (e) { return false; }
+}
+
+/**
+ * Jalankan SEKALI dari editor. Idempoten: key LAMA dipertahankan.
+ * Key + petunjuk dikirim ke Gmail pemilik.
+ */
 function setupGenFin() {
-  var k = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
-  PropertiesService.getScriptProperties().setProperty('GF_KEY', k);
+  var props = PropertiesService.getScriptProperties();
+  var k = props.getProperty('GF_KEY');
+  var isNew = !k;
+  if (isNew) {
+    k = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
+    props.setProperty('GF_KEY', k);
+  }
+  var owner = props.getProperty('GF_OWNER') || '';
+  try { var me = Session.getActiveUser().getEmail(); if (me) { owner = me; props.setProperty('GF_OWNER', owner); } } catch (e) {}
   var h = _sh(HIST); if (h.getLastRow() === 0) h.getRange(1, 1, 1, 5).setValues([['Waktu', 'Versi', 'Salt', 'IV', 'CT']]).setFontWeight('bold');
   var a = _sh(AUDIT); if (a.getLastRow() === 0) a.getRange(1, 1, 1, 4).setValues([['Waktu', 'Aksi', 'Versi', 'Catatan']]).setFontWeight('bold');
-  _audit('SETUP', 0, 'API v2 aktif');
+  _audit('SETUP', 0, isNew ? 'API v2.1 aktif, key baru' : 'ulang — key dipertahankan');
+  var sent = false;
+  if (owner) sent = mailKey(isNew ? 'GenFin — Access Key Keluarga Anda' : 'GenFin — Access Key Keluarga (permintaan ulang)');
   Logger.log('==================================================\n' +
-    ' ACCESS KEY KELUARGA (simpan rahasia, perangkat baru perlu ini):\n ' + k + '\n' +
+    ' ACCESS KEY KELUARGA (simpan rahasia):\n ' + k + '\n' +
+    (sent ? ' Dikirim ke email: ' + owner : ' (email TIDAK terkirim — salin key dari sini)') + '\n' +
     '==================================================');
 }
 
-function _key() { return PropertiesService.getScriptProperties().getProperty('GF_KEY') || ''; }
+/** Ganti key SECARA SENGAJA (semua perangkat harus minta key baru). */
+function resetGenFinKey() {
+  var props = PropertiesService.getScriptProperties();
+  var k = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
+  props.setProperty('GF_KEY', k);
+  _audit('RESET_KEY', 0, '');
+  var sent = _owner() ? mailKey('GenFin — Access Key BARU (key lama tidak berlaku)') : false;
+  Logger.log('KEY BARU: ' + k + (sent ? '\nDikirim ke: ' + _owner() : ''));
+}
 
 function _gate(req) {
-  var ok = !!_key() && String(req.key || '') === _key();
+  var ok = !!_key() && String(req.key || '').trim() === _key();
   if (!ok) {
     var c = CacheService.getScriptCache(), f = Number(c.get('gf_fail') || 0) + 1;
     c.put('gf_fail', String(f), 900); // 15 menit
@@ -126,6 +162,18 @@ function doPost(e) {
     return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON);
   }
 
+  // Pemulihan Access Key — TANPA auth (hanya mengirim key ke email pemilik,
+  // tidak mengungkapkan key ke penelepon). Rate-limit 1 per 10 menit.
+  if (req.action === 'sendkey') {
+    if (!_key() || !_owner()) return out({ err: 'nosetup' });
+    var cm = CacheService.getScriptCache();
+    if (cm.get('gf_mail')) return out({ err: 'rate' });
+    cm.put('gf_mail', '1', 600);
+    var ok2 = mailKey('GenFin — Access Key (permintaan dari aplikasi)');
+    _audit(ok2 ? 'SENDKEY' : 'MAIL_FAIL', 0, _owner());
+    return ok2 ? out({ ok: true }) : out({ err: 'mail' });
+  }
+
   if (_locked()) return out({ err: 'rate' });
   if (!_gate(req)) return out({ err: 'auth' });
 
@@ -166,6 +214,6 @@ function doPost(e) {
 }
 
 function doGet() {
-  return ContentService.createTextOutput(JSON.stringify({ app: 'GenFin API', v: 2 }))
+  return ContentService.createTextOutput(JSON.stringify({ app: 'GenFin API', v: 2, setup: !!_key() }))
     .setMimeType(ContentService.MimeType.JSON);
 }

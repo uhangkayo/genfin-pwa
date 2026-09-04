@@ -1,5 +1,7 @@
-/* GenFin Service Worker — offline-first app shell */
-var CACHE = 'genfin-v1';
+/* GenFin Service Worker v2 — app shell offline-first
+ * v2: network-first untuk navigasi & gf-bridge.js agar update bugfix
+ *     langsung sampai ke pengguna (asset besar tetap cache-first). */
+var CACHE = 'genfin-v2';
 var CORE = [
   './',
   './index.html',
@@ -26,6 +28,21 @@ self.addEventListener('activate', function (e) {
 self.addEventListener('fetch', function (e) {
   var url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return; // API GAS lewat langsung
+
+  // network-first: halaman & bridge (update segera efektif)
+  if (e.request.mode === 'navigate' || url.pathname.indexOf('gf-bridge.js') !== -1) {
+    e.respondWith(
+      fetch(e.request).then(function (res) {
+        if (res && res.ok) { var cp = res.clone(); caches.open(CACHE).then(function (c) { c.put(e.request, cp); }); }
+        return res;
+      }).catch(function () {
+        return caches.match(e.request, { ignoreSearch: true }).then(function (hit) { return hit || Response.error(); });
+      })
+    );
+    return;
+  }
+
+  // asset besar: stale-while-revalidate
   e.respondWith(
     caches.match(e.request, { ignoreSearch: true }).then(function (hit) {
       var net = fetch(e.request).then(function (res) {
@@ -34,7 +51,7 @@ self.addEventListener('fetch', function (e) {
       }).catch(function () {
         return hit || (e.request.mode === 'navigate' ? caches.match('./index.html') : Response.error());
       });
-      return hit || net; // stale-while-revalidate
+      return hit || net;
     })
   );
 });
