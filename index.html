@@ -883,7 +883,7 @@
 
           <button sc-camel-on-click="{{ printReport }}" style="margin-top:14px;width:100%;border:none;background:#151823;color:#fff;font-size:16px;font-weight:600;padding:15px;border-radius:13px;cursor:pointer;">Cetak / Simpan PDF</button>
           <button sc-camel-on-click="{{ resetData }}" style="margin-top:12px;width:100%;border:none;background:#fff;color:#ff3b30;font-size:16px;font-weight:500;padding:15px;border-radius:13px;cursor:pointer;box-shadow:0 4px 16px rgba(20,20,28,.06);">Reset ke data awal</button>
-          <p style="font-size:12px;color:#aeaeb2;text-align:center;margin-top:14px;">Data tersimpan otomatis di perangkat ini.<br>GenFin v2.4 · SW v6</p>
+          <p style="font-size:12px;color:#aeaeb2;text-align:center;margin-top:14px;">Data tersimpan otomatis di perangkat ini.<br>GenFin v2.5 · SW v7</p>
         </section>
       </sc-if>
 
@@ -2642,27 +2642,14 @@ class Component extends DCLogic {
 
 
 <script>
-/* ===== FIX iOS: shell selalu setinggi viewport NYATA =====
-   1) fixed inset:0 mengikuti layout viewport — di Safari toolbar mengambang / keyboard,
-      tinggi itu TIDAK sama dengan viewport visual → strip kosong di bawah nav.
-   2) WKWebView sering tidak repaint elemen fixed setelah keyboard tutup → gap abu permanen. */
+/* ===== iOS: JANGAN resize shell — bukti diag.html (perangkat nyata, iOS 18.7):
+   fixed inset:0 SUDAH full-bleed; innerHeight bisa < layar fisik (812 vs layar penuh),
+   jadi men-set height=innerHeight justru MENCIPATAKAN gap abu permanen.
+   Yang dipertahankan hanya nudge repaint pasca-keyboard (bug WKWebView). ===== */
 (function(){
-  function fit(){
-    var sh = document.getElementById('gf-shell'); if (!sh) return;
-    var h = window.innerHeight;
-    if (Math.abs(sh.getBoundingClientRect().height - h) > 1){ sh.style.height = h + 'px'; sh.style.bottom = 'auto'; }
-  }
-  fit();
-  window.addEventListener('resize', fit);
-  window.addEventListener('orientationchange', function(){ setTimeout(fit, 350); });
-  if (window.visualViewport){
-    window.visualViewport.addEventListener('resize', fit);
-    window.visualViewport.addEventListener('scroll', fit);
-  }
-  /* nudge repaint pasca-keyboard */
   document.addEventListener('focusout', function(){
     requestAnimationFrame(function(){ requestAnimationFrame(function(){
-      window.scrollTo(0, 0); fit();
+      window.scrollTo(0, 0);
       var m = document.querySelector('#gf-col > main'); if (m) { m.scrollTop = m.scrollTop; }
     }); });
   });
