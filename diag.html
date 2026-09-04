@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="id"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GenFin — Diagnosis Layar</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;}
+  body{font-family:-apple-system,system-ui,sans-serif;background:#e5e5ea;color:#111;overflow:hidden}
+  #box{position:fixed;inset:0;background:#0b3d2e;color:#fff;display:flex;flex-direction:column;padding:max(16px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom));}
+  #box.fit{height:100vh}
+  h1{font-size:16px;margin-bottom:2px;color:#fbbf24}
+  .sub{font-size:12px;opacity:.75;margin-bottom:10px}
+  pre{font-size:12.5px;line-height:1.65;white-space:pre-wrap;background:rgba(255,255,255,.08);border-radius:10px;padding:12px;flex:0 0 auto}
+  #tip{position:absolute;bottom:max(10px,env(safe-area-inset-bottom));left:0;right:0;text-align:center;font-size:11px;opacity:.8}
+  #anchor{margin-top:auto;text-align:center;font-size:13px;font-weight:700;color:#2DD4BF;padding-bottom:4px}
+</style>
+</head><body>
+<div id="box">
+  <h1>GenFin — Diagnosis Layar</h1>
+  <div class="sub">Kirim screenshot halaman ini ke Hermes</div>
+  <pre id="out">memuat…</pre>
+  <div id="anchor">▲ Garis ini harus MENEMPEL di dasar layar</div>
+  <div id="tip">Jika antara garis ▲ dan tepi bawah layar ada area kosong → screenshot itu yang dikirim</div>
+</div>
+<script>
+function probe(){
+  var p=document.createElement('div');
+  p.style.cssText='position:fixed;left:-9999px;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)';
+  document.body.appendChild(p);
+  var cs=getComputedStyle(p);
+  var r={top:cs.paddingTop,bottom:cs.paddingBottom};
+  p.remove(); return r;
+}
+function dump(){
+  var vv=window.visualViewport, sa=probe();
+  var lines=[
+    'mode        : '+(navigator.standalone?('standalone(iOS): '+navigator.standalone):matchMedia('(display-mode: standalone)').matches?'standalone(PWA)':'browser/tab'),
+    'UA          : '+navigator.userAgent.replace(/Mozilla\/5\.0 \((.*?)\) AppleWebKit.*/,'$1'),
+    'inner       : '+window.innerWidth+' x '+window.innerHeight,
+    'vv          : '+(vv?Math.round(vv.width)+' x '+Math.round(vv.height)+' scale='+vv.scale+' offTop='+Math.round(vv.offsetTop):'tidak ada'),
+    'client      : '+document.documentElement.clientWidth+' x '+document.documentElement.clientHeight,
+    'dpr         : '+window.devicePixelRatio,
+    'safe-area   : top '+sa.top+' / bottom '+sa.bottom,
+    'sw          : '+(navigator.serviceWorker?(navigator.serviceWorker.controller?'aktif ('+(navigator.serviceWorker.controller.scriptURL||'').split('/').pop()+')':'belum kontrol'):'tidak ada'),
+    'waktu       : '+new Date().toISOString()
+  ];
+  document.getElementById('out').textContent=lines.join('\n');
+}
+dump();
+if(window.visualViewport){visualViewport.addEventListener('resize',dump);visualViewport.addEventListener('scroll',dump);}
+window.addEventListener('resize',dump);
+</script>
+</body></html>
