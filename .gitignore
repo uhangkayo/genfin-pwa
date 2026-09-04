@@ -1,0 +1,3 @@
+.mock-store.json
+.mock-legacy.json
+*.pyc
